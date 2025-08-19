@@ -106,6 +106,10 @@ body {
 .login-btn:hover {
   background-color: #2563eb;
 }
+.login-btn:disabled {
+    background-color: #93c5fd;
+    cursor: not-allowed;
+}
 
 .form-link {
   color: var(--primary-color);
@@ -182,6 +186,13 @@ body {
 }
 
 
+/* --- Main App Layout --- */
+.app-container {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
 .app-header {
   background-color: var(--primary-color);
   color: var(--header-text-color);
@@ -229,32 +240,30 @@ body {
   background-color: rgba(255, 255, 255, 0.1);
 }
 
-.main-content {
+.main-content.dashboard {
   flex-grow: 1;
   width: 100%;
-  max-width: 800px;
+  max-width: 1200px;
   margin: 0 auto;
-  padding: 2.5rem 1.5rem;
-  text-align: center;
+  padding: 2rem;
 }
 
-.welcome-card {
-  background-color: var(--surface-color);
-  padding: 2.5rem;
-  border-radius: var(--border-radius);
-  box-shadow: var(--shadow);
+.main-content.dashboard h2 {
+    color: var(--text-color);
 }
 
-.welcome-card h2 {
-  font-size: 2rem;
-  font-weight: 500;
-  margin-bottom: 0.5rem;
+.main-content.dashboard input,
+.main-content.dashboard button {
+    font-family: var(--font-family);
+}
+.main-content.dashboard .filterBtn {
+    transition: all 0.2s ease-in-out;
 }
 
-.welcome-card p {
-  color: var(--subtle-text-color);
-  font-size: 1.1rem;
+.main-content.dashboard table {
+    background-color: var(--surface-color);
 }
+
 
 /* --- Settings Panel --- */
 .settings-overlay {

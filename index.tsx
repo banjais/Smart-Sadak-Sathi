@@ -2,10 +2,10 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
 */
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
 
-type UserRole = 'guest' | 'admin' | 'superadmin';
+type UserRole = 'guest' | 'admin' | 'superadmin' | 'user';
 type AuthStatus = {
   loggedIn: boolean;
   role: UserRole | null;
@@ -15,10 +15,66 @@ type ApiKey = { id: number; name: string; value: string };
 type SheetId = { id: number; name: string; value: string };
 type LoginView = 'login' | 'forgot' | 'otp' | 'reset_success';
 
+// --- SIMULATED BACKEND API ---
+// This object mimics a secure backend server. In a real application,
+// these functions would make network requests (e.g., using fetch) to your server.
+
+const SimulatedUserAPI = {
+  _users: [
+    { email: 'superadmin@app.com', password: 'password123', role: 'superadmin' as UserRole },
+    { email: 'admin@app.com', password: 'password123', role: 'admin' as UserRole },
+    { email: 'user@app.com', password: 'password123', role: 'user' as UserRole },
+  ],
+
+  async login(email, password) {
+    await new Promise(res => setTimeout(res, 500)); // Simulate network delay
+    const user = this._users.find(u => u.email === email && u.password === password);
+    if (user) {
+      return { success: true, user: { email: user.email, role: user.role } };
+    }
+    return { success: false, error: 'Invalid email or password.' };
+  },
+
+  async findUserByEmail(email) {
+    await new Promise(res => setTimeout(res, 500));
+    const userExists = this._users.some(u => u.email === email);
+    if (userExists) {
+      return { success: true };
+    }
+    return { success: false, error: 'No account found with that email address.' };
+  },
+
+  async resetPassword(email, newPassword) {
+    await new Promise(res => setTimeout(res, 500));
+    const userIndex = this._users.findIndex(u => u.email === email);
+    if (userIndex > -1) {
+      this._users[userIndex].password = newPassword;
+      return { success: true };
+    }
+    return { success: false, error: 'An unknown error occurred.' };
+  }
+};
+
+
+const SimulatedDataAPI = {
+    _roadData: [
+        { id: 1, HighwayName: 'Araniko Highway', Section: 'Kathmandu - Kodari', Status: 'Blocked', Cause: 'Landslide', Contact: '123-456-7890', Lat: 27.7172, Lng: 85.3240 },
+        { id: 2, HighwayName: 'Prithvi Highway', Section: 'Naubise - Mugling', Status: 'One-lane', Cause: 'Road work', Contact: '123-456-7891', Lat: 27.8389, Lng: 84.8525 },
+        { id: 3, HighwayName: 'Siddhartha Highway', Section: 'Butwal - Palpa', Status: 'Resumed', Cause: 'Cleared', Contact: '123-456-7892', Lat: 27.8643, Lng: 83.5516 },
+        { id: 4, HighwayName: 'Karnali Highway', Section: 'Surkhet - Jumla', Status: 'Blocked', Cause: 'Heavy Snow', Contact: '123-456-7893', Lat: 28.5633, Lng: 82.2858 },
+    ],
+
+    async getRoadData() {
+        await new Promise(res => setTimeout(res, 800)); // Simulate network delay
+        return { success: true, data: this._roadData };
+    }
+};
+
+
 // --- SVG Icons ---
 const SettingsIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 0 2l-.15.08a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1 0 2l.15-.08a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+    <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 0 2l-.15.08a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l-.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1 0 2l.15-.08a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
     <circle cx="12" cy="12" r="3" />
   </svg>
 );
@@ -143,11 +199,100 @@ const SettingsPanel = ({ isOpen, onClose, role, settings, setSettings, onLogout 
   );
 };
 
-// --- Main App Component ---
+// --- Main App Components ---
+
+const DashboardPage = () => {
+    const [allRoads, setAllRoads] = useState([]);
+    const [filteredRoads, setFilteredRoads] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [statusFilter, setStatusFilter] = useState('all');
+
+    useEffect(() => {
+        const fetchData = async () => {
+            setLoading(true);
+            const response = await SimulatedDataAPI.getRoadData();
+            if (response.success) {
+                setAllRoads(response.data);
+                setFilteredRoads(response.data);
+            }
+            setLoading(false);
+        };
+        fetchData();
+    }, []);
+    
+    useEffect(() => {
+        let roads = allRoads;
+        if (statusFilter !== 'all') {
+            roads = roads.filter(r => r.Status.toLowerCase() === statusFilter);
+        }
+        if (searchTerm) {
+            roads = roads.filter(r => r.HighwayName.toLowerCase().includes(searchTerm.toLowerCase()));
+        }
+        setFilteredRoads(roads);
+    }, [searchTerm, statusFilter, allRoads]);
+
+    const summaryData = useMemo(() => {
+        return allRoads.reduce((acc, road) => {
+            acc[road.Status] = (acc[road.Status] || 0) + 1;
+            return acc;
+        }, {});
+    }, [allRoads]);
+
+    return (
+        <main className="main-content dashboard">
+             <div className="flex justify-between items-center mb-4">
+                <h2 className="text-2xl font-bold">Dashboard</h2>
+                <div className="flex gap-2">
+                    <button className="p-2 bg-green-500 text-white rounded">Print</button>
+                    <button className="p-2 bg-yellow-500 text-white rounded">Share</button>
+                </div>
+            </div>
+             <div className="mb-4">
+                <input type="text" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Search roads..." className="p-2 border rounded w-full"/>
+             </div>
+             <div className="mb-4 flex gap-2">
+                <button onClick={() => setStatusFilter('blocked')} className={`filterBtn p-2 rounded ${statusFilter === 'blocked' ? 'bg-blue-500 text-white' : 'bg-gray-300'}`}>Blocked</button>
+                <button onClick={() => setStatusFilter('one-lane')} className={`filterBtn p-2 rounded ${statusFilter === 'one-lane' ? 'bg-blue-500 text-white' : 'bg-gray-300'}`}>One-lane</button>
+                <button onClick={() => setStatusFilter('resumed')} className={`filterBtn p-2 rounded ${statusFilter === 'resumed' ? 'bg-blue-500 text-white' : 'bg-gray-300'}`}>Resumed</button>
+                <button onClick={() => setStatusFilter('all')} className={`filterBtn p-2 rounded ${statusFilter === 'all' ? 'bg-blue-500 text-white' : 'bg-gray-300'}`}>All</button>
+            </div>
+
+            <div id="content" className="border p-4 rounded bg-white dark:bg-gray-900">
+                {loading ? <p>Loading road data...</p> : (
+                    <table className="w-full table-auto border-collapse border">
+                        <thead>
+                        <tr className="bg-gray-200 dark:bg-gray-700">
+                            <th className="border p-2">Highway/Bridge</th>
+                            <th className="border p-2">Section</th>
+                            <th className="border p-2">Status</th>
+                            <th className="border p-2">Cause</th>
+                            <th className="border p-2">Contact</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                            {filteredRoads.map(r => (
+                                <tr key={r.id}>
+                                    <td className="border p-2">{r.HighwayName}</td>
+                                    <td className="border p-2">{r.Section}</td>
+                                    <td className="border p-2">{r.Status}</td>
+                                    <td className="border p-2">{r.Cause}</td>
+                                    <td className="border p-2">{r.Contact}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                )}
+            </div>
+        </main>
+    );
+};
+
+
 const App = ({ role, userEmail, onLogout }) => {
   const [isSettingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState({
-      backgroundColor: '#F3F4F6',
+      backgroundColor: '#FFFFFF', // Changed default to white for dashboard
       apiKeys: [] as ApiKey[],
       sheetIds: [] as SheetId[]
   });
@@ -155,10 +300,12 @@ const App = ({ role, userEmail, onLogout }) => {
   const canShowSettings = useMemo(() => role === 'admin' || role === 'superadmin', [role]);
   
   // Apply dynamic styles
-  document.body.style.backgroundColor = settings.backgroundColor;
+  useEffect(() => {
+    document.body.style.backgroundColor = settings.backgroundColor;
+  }, [settings.backgroundColor]);
 
   return (
-    <>
+    <div className="app-container">
       <SettingsPanel 
         isOpen={isSettingsOpen} 
         onClose={() => setSettingsOpen(false)} 
@@ -170,59 +317,58 @@ const App = ({ role, userEmail, onLogout }) => {
       
       <header className="app-header">
         <h1>Sadak Sathi</h1>
-        {canShowSettings && (
-            <div className="header-user-info">
-                <span className="user-email">{userEmail}</span>
+        <div className="header-user-info">
+            <span className="user-email">{userEmail}</span>
+            {canShowSettings && (
                 <button className="settings-btn" onClick={() => setSettingsOpen(true)} aria-label="Open settings">
                     <SettingsIcon />
                 </button>
-            </div>
-        )}
+            )}
+        </div>
       </header>
 
-      <main className="main-content">
-        <div className="welcome-card">
-          <h2>Your Road Companion</h2>
-          <p>
-            Report incidents, check road conditions, and travel safer. Ready to start your journey?
-          </p>
-        </div>
-      </main>
-    </>
+      <DashboardPage />
+
+    </div>
   );
 };
 
 // --- Authentication Components ---
-const LoginScreen = ({ users, setUsers, onLoginSuccess }) => {
+const LoginScreen = ({ onLoginSuccess }) => {
   const [view, setView] = useState<LoginView>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [otp, setOtp] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const [isOtpVerified, setIsOtpVerified] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
     setError('');
+    setLoading(true);
 
-    const user = users.find(u => u.email === email && u.password === password);
+    const result = await SimulatedUserAPI.login(email, password);
 
-    if (user) {
-      onLoginSuccess({ loggedIn: true, role: user.role, userEmail: user.email });
+    if (result.success) {
+      onLoginSuccess({ loggedIn: true, role: result.user.role, userEmail: result.user.email });
     } else {
-      setError('Invalid email or password.');
+      setError(result.error);
     }
+    setLoading(false);
   };
 
-  const handlePasswordResetRequest = (e) => {
+  const handlePasswordResetRequest = async (e) => {
     e.preventDefault();
     setError('');
-    const userExists = users.some(u => u.email === email);
-    if (!userExists) {
-        setError('No account found with that email address.');
+    setLoading(true);
+    const result = await SimulatedUserAPI.findUserByEmail(email);
+    if (!result.success) {
+        setError(result.error);
+        setLoading(false);
         return;
     }
     console.log(`Password reset requested for ${email}`);
@@ -231,6 +377,7 @@ const LoginScreen = ({ users, setUsers, onLoginSuccess }) => {
     setNewPassword('');
     setConfirmPassword('');
     setView('otp');
+    setLoading(false);
   };
 
   const handleOtpVerification = (e) => {
@@ -244,7 +391,7 @@ const LoginScreen = ({ users, setUsers, onLoginSuccess }) => {
     }
   };
 
-  const handleFinalPasswordReset = (e) => {
+  const handleFinalPasswordReset = async (e) => {
     e.preventDefault();
     setError('');
 
@@ -256,14 +403,13 @@ const LoginScreen = ({ users, setUsers, onLoginSuccess }) => {
       setError('Password must be at least 8 characters long.');
       return;
     }
+    setLoading(true);
     
-    // Update the password in the simulated user database
-    setUsers(currentUsers => currentUsers.map(user => 
-      user.email === email ? { ...user, password: newPassword } : user
-    ));
+    await SimulatedUserAPI.resetPassword(email, newPassword);
 
     console.log(`Password has been successfully reset for ${email}.`);
     setView('reset_success');
+    setLoading(false);
   };
 
   const backToLogin = () => {
@@ -292,7 +438,7 @@ const LoginScreen = ({ users, setUsers, onLoginSuccess }) => {
               <label htmlFor="password">Password</label>
               <input type="password" id="password" value={password} onChange={e => setPassword(e.target.value)} required />
             </div>
-            <button type="submit" className="login-btn">Login</button>
+            <button type="submit" className="login-btn" disabled={loading}>{loading ? 'Logging in...' : 'Login'}</button>
             <p className="form-link" onClick={() => { setError(''); setView('forgot'); }}>
                 Forgot Password?
             </p>
@@ -300,6 +446,7 @@ const LoginScreen = ({ users, setUsers, onLoginSuccess }) => {
               <p><strong>Demo Credentials:</strong></p>
               <p>Super Admin: <code>superadmin@app.com</code></p>
               <p>Admin: <code>admin@app.com</code></p>
+              <p>User: <code>user@app.com</code></p>
               <p>Initial Password: <code>password123</code></p>
             </div>
           </form>
@@ -313,7 +460,7 @@ const LoginScreen = ({ users, setUsers, onLoginSuccess }) => {
               <label htmlFor="reset-email">Email</label>
               <input type="email" id="reset-email" value={email} onChange={e => setEmail(e.target.value)} required />
             </div>
-            <button type="submit" className="login-btn">Send OTP</button>
+            <button type="submit" className="login-btn" disabled={loading}>{loading ? 'Sending...' : 'Send OTP'}</button>
             <p className="form-link" onClick={backToLogin}>Back to Login</p>
           </form>
         )}
@@ -345,7 +492,7 @@ const LoginScreen = ({ users, setUsers, onLoginSuccess }) => {
                   <label htmlFor="confirm-password">Confirm Password</label>
                   <input type="password" id="confirm-password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required />
                 </div>
-                <button type="submit" className="login-btn">Reset Password</button>
+                <button type="submit" className="login-btn" disabled={loading}>{loading ? 'Resetting...' : 'Reset Password'}</button>
               </>
             )}
             
@@ -372,18 +519,12 @@ const AuthFlow = () => {
     userEmail: null,
   });
   
-  // Simulated user database
-  const [users, setUsers] = useState([
-    { email: 'superadmin@app.com', password: 'password123', role: 'superadmin' },
-    { email: 'admin@app.com', password: 'password123', role: 'admin' },
-  ]);
-
   const handleLogout = () => {
     setAuthStatus({ loggedIn: false, role: null, userEmail: null });
   };
   
   if (!authStatus.loggedIn) {
-    return <LoginScreen users={users} setUsers={setUsers} onLoginSuccess={setAuthStatus} />;
+    return <LoginScreen onLoginSuccess={setAuthStatus} />;
   }
 
   return <App role={authStatus.role} userEmail={authStatus.userEmail} onLogout={handleLogout} />;
