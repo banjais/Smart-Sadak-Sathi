@@ -13,7 +13,7 @@ type AuthStatus = {
 };
 type ApiKey = { id: number; name: string; value: string };
 type SheetId = { id: number; name: string; value: string };
-type LoginView = 'login' | 'forgot' | 'otp';
+type LoginView = 'login' | 'forgot' | 'otp' | 'reset_success';
 
 // --- SVG Icons ---
 const SettingsIcon = () => (
@@ -193,39 +193,88 @@ const App = ({ role, userEmail, onLogout }) => {
 };
 
 // --- Authentication Components ---
-const LoginScreen = ({ onLoginSuccess }) => {
+const LoginScreen = ({ users, setUsers, onLoginSuccess }) => {
   const [view, setView] = useState<LoginView>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [otp, setOtp] = useState('');
   const [error, setError] = useState('');
+
+  const [isOtpVerified, setIsOtpVerified] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
   const handleLogin = (e) => {
     e.preventDefault();
     setError('');
 
-    // --- SIMULATED LOGIN ---
-    if (email === 'superadmin@app.com' && password === 'password123') {
-      onLoginSuccess({ loggedIn: true, role: 'superadmin', userEmail: email });
-    } else if (email === 'admin@app.com' && password === 'password123') {
-      onLoginSuccess({ loggedIn: true, role: 'admin', userEmail: email });
+    const user = users.find(u => u.email === email && u.password === password);
+
+    if (user) {
+      onLoginSuccess({ loggedIn: true, role: user.role, userEmail: user.email });
     } else {
       setError('Invalid email or password.');
     }
   };
 
-  const handlePasswordReset = (e) => {
+  const handlePasswordResetRequest = (e) => {
     e.preventDefault();
-    // In a real app, this would trigger a backend API call
+    setError('');
+    const userExists = users.some(u => u.email === email);
+    if (!userExists) {
+        setError('No account found with that email address.');
+        return;
+    }
     console.log(`Password reset requested for ${email}`);
+    setIsOtpVerified(false);
+    setOtp('');
+    setNewPassword('');
+    setConfirmPassword('');
     setView('otp');
   };
 
-  const handleOtpSubmit = (e) => {
+  const handleOtpVerification = (e) => {
     e.preventDefault();
-    // In a real app, this would verify the OTP and new password
-    console.log(`Password has been reset.`);
+    setError('');
+    if (otp === '123456') {
+      setIsOtpVerified(true);
+      setError('');
+    } else {
+      setError('Invalid OTP code. Please use 123456 for this demo.');
+    }
+  };
+
+  const handleFinalPasswordReset = (e) => {
+    e.preventDefault();
+    setError('');
+
+    if (newPassword !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+    if (newPassword.length < 8) {
+      setError('Password must be at least 8 characters long.');
+      return;
+    }
+    
+    // Update the password in the simulated user database
+    setUsers(currentUsers => currentUsers.map(user => 
+      user.email === email ? { ...user, password: newPassword } : user
+    ));
+
+    console.log(`Password has been successfully reset for ${email}.`);
+    setView('reset_success');
+  };
+
+  const backToLogin = () => {
+    setEmail('');
+    setPassword('');
+    setOtp('');
+    setIsOtpVerified(false);
+    setError('');
     setView('login');
   }
+
 
   return (
     <div className="login-container">
@@ -244,42 +293,71 @@ const LoginScreen = ({ onLoginSuccess }) => {
               <input type="password" id="password" value={password} onChange={e => setPassword(e.target.value)} required />
             </div>
             <button type="submit" className="login-btn">Login</button>
-            <p className="form-link" onClick={() => setView('forgot')}>Forgot Password?</p>
+            <p className="form-link" onClick={() => { setError(''); setView('forgot'); }}>
+                Forgot Password?
+            </p>
             <div className="info-box">
               <p><strong>Demo Credentials:</strong></p>
               <p>Super Admin: <code>superadmin@app.com</code></p>
               <p>Admin: <code>admin@app.com</code></p>
-              <p>Password: <code>password123</code></p>
+              <p>Initial Password: <code>password123</code></p>
             </div>
           </form>
         )}
         {view === 'forgot' && (
-          <form onSubmit={handlePasswordReset}>
+          <form onSubmit={handlePasswordResetRequest}>
             <h2>Reset Password</h2>
             <p>Enter your email to receive a one-time password (OTP).</p>
+            {error && <p className="error-message">{error}</p>}
             <div className="form-group">
               <label htmlFor="reset-email">Email</label>
               <input type="email" id="reset-email" value={email} onChange={e => setEmail(e.target.value)} required />
             </div>
             <button type="submit" className="login-btn">Send OTP</button>
-            <p className="form-link" onClick={() => setView('login')}>Back to Login</p>
+            <p className="form-link" onClick={backToLogin}>Back to Login</p>
           </form>
         )}
         {view === 'otp' && (
-          <form onSubmit={handleOtpSubmit}>
-            <h2>Enter OTP</h2>
-            <p>Check your email for the OTP code.</p>
-            <div className="form-group">
-              <label htmlFor="otp">OTP Code</label>
-              <input type="text" id="otp" required />
-            </div>
-             <div className="form-group">
-              <label htmlFor="new-password">New Password</label>
-              <input type="password" id="new-password" required />
-            </div>
-            <button type="submit" className="login-btn">Reset Password</button>
-            <p className="form-link" onClick={() => setView('login')}>Back to Login</p>
+          <form onSubmit={isOtpVerified ? handleFinalPasswordReset : handleOtpVerification}>
+            <h2>Reset Password</h2>
+            {error && <p className="error-message">{error}</p>}
+            
+            {!isOtpVerified ? (
+              <>
+                <p>An OTP has been sent to your email. For this demo, please use the code below.</p>
+                <div className="otp-info">
+                  <p>Demo OTP Code: <code>123456</code></p>
+                </div>
+                <div className="form-group">
+                  <label htmlFor="otp">OTP Code</label>
+                  <input type="text" id="otp" value={otp} onChange={e => setOtp(e.target.value)} required />
+                </div>
+                <button type="submit" className="login-btn">Verify OTP</button>
+              </>
+            ) : (
+              <>
+                <p className="success-message">OTP Verified. Please set your new password.</p>
+                <div className="form-group">
+                  <label htmlFor="new-password">New Password</label>
+                  <input type="password" id="new-password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="confirm-password">Confirm Password</label>
+                  <input type="password" id="confirm-password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required />
+                </div>
+                <button type="submit" className="login-btn">Reset Password</button>
+              </>
+            )}
+            
+            <p className="form-link" onClick={backToLogin}>Back to Login</p>
           </form>
+        )}
+        {view === 'reset_success' && (
+            <div>
+                <h2 className="success-heading">Password Reset Successful!</h2>
+                <p>Your password has been changed. You can now log in with your new password.</p>
+                <button onClick={backToLogin} className="login-btn">Back to Login</button>
+            </div>
         )}
       </div>
     </div>
@@ -289,22 +367,27 @@ const LoginScreen = ({ onLoginSuccess }) => {
 // --- Auth Flow Manager ---
 const AuthFlow = () => {
   const [authStatus, setAuthStatus] = useState<AuthStatus>({
-    loggedIn: true,
-    role: 'admin',
-    userEmail: 'admin@app.com',
+    loggedIn: false,
+    role: null,
+    userEmail: null,
   });
+  
+  // Simulated user database
+  const [users, setUsers] = useState([
+    { email: 'superadmin@app.com', password: 'password123', role: 'superadmin' },
+    { email: 'admin@app.com', password: 'password123', role: 'admin' },
+  ]);
 
   const handleLogout = () => {
     setAuthStatus({ loggedIn: false, role: null, userEmail: null });
   };
   
   if (!authStatus.loggedIn) {
-    return <LoginScreen onLoginSuccess={setAuthStatus} />;
+    return <LoginScreen users={users} setUsers={setUsers} onLoginSuccess={setAuthStatus} />;
   }
 
   return <App role={authStatus.role} userEmail={authStatus.userEmail} onLogout={handleLogout} />;
 };
-
 
 const root = ReactDOM.createRoot(document.getElementById('root')!);
 root.render(

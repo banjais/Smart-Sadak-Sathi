@@ -10,6 +10,8 @@
   --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
   --danger-color: #EF4444;
   --danger-bg-color: #FEE2E2;
+  --success-color: #065F46;
+  --success-bg-color: #D1FAE5;
 }
 
 * {
@@ -119,6 +121,22 @@ body {
   padding: 0.75rem;
   border-radius: 6px;
   font-size: 0.9rem;
+  margin-bottom: 1rem;
+}
+
+.success-message {
+  background-color: var(--success-bg-color);
+  color: var(--success-color);
+  padding: 0.75rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  margin-bottom: 1rem;
+  text-align: center;
+}
+
+.success-heading {
+  color: var(--success-color);
+  margin-bottom: 0.75rem;
 }
 
 .info-box {
@@ -140,6 +158,27 @@ body {
   padding: 2px 4px;
   border-radius: 4px;
   color: var(--text-color);
+}
+
+.otp-info {
+  margin-top: -0.5rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  background-color: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  text-align: center;
+  color: #0c4a6e;
+}
+
+.otp-info code {
+  background-color: #e0f2fe;
+  padding: 3px 8px;
+  border-radius: 4px;
+  color: #0369a1;
+  font-weight: 700;
+  font-size: 1.1rem;
 }
 
 
