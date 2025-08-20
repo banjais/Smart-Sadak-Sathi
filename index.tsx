@@ -17,6 +17,7 @@ type ApiKey = { id: number; name: string; value: string };
 type SheetId = { id: number; name: string; value: string };
 type LoginView = 'login' | 'forgot' | 'otp' | 'reset_success';
 type Message = { id: number; text: string; sender: 'user' | 'ai' };
+type ActivityLog = { id: number; timestamp: string; message: string; };
 
 // --- SIMULATED BACKEND API ---
 // This object mimics a secure backend server for user authentication.
@@ -44,6 +45,19 @@ const SimulatedUserAPI = {
       return { success: true };
     }
     return { success: false, error: 'No account found with that email address.' };
+  },
+  
+  async changePassword(email, currentPassword, newPassword) {
+    await new Promise(res => setTimeout(res, 500));
+    const userIndex = this._users.findIndex(u => u.email === email);
+    if (userIndex === -1) {
+        return { success: false, error: 'User not found.' };
+    }
+    if (this._users[userIndex].password !== currentPassword) {
+        return { success: false, error: 'Incorrect current password.' };
+    }
+    this._users[userIndex].password = newPassword;
+    return { success: true };
   },
 
   async resetPassword(email, newPassword) {
@@ -165,30 +179,32 @@ const SendIcon = () => (
 );
 
 // --- Settings Panel Components ---
-const SuperAdminSettings = ({ settings, setSettings }) => {
-  const [newApiKey, setNewApiKey] = useState({ name: '', value: '' });
-  const [newSheetId, setNewSheetId] = useState({ name: '', value: '' });
+const SuperAdminSettings = ({ settings, setSettings, userEmail, logActivity }) => {
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [passwordMessage, setPasswordMessage] = useState({ type: '', text: '' });
 
-  const handleAddApiKey = () => {
-    if (!newApiKey.name || !newApiKey.value) return;
-    const newKey: ApiKey = { ...newApiKey, id: Date.now() };
-    setSettings({ ...settings, apiKeys: [...settings.apiKeys, newKey] });
-    setNewApiKey({ name: '', value: '' });
-  };
-  
-  const handleRemoveApiKey = (id: number) => {
-    setSettings({ ...settings, apiKeys: settings.apiKeys.filter(key => key.id !== id) });
-  };
+  const handlePasswordChange = async (e) => {
+    e.preventDefault();
+    setPasswordMessage({ type: '', text: '' });
 
-  const handleAddSheetId = () => {
-    if (!newSheetId.name || !newSheetId.value) return;
-    const newId: SheetId = { ...newSheetId, id: Date.now() };
-    setSettings({ ...settings, sheetIds: [...settings.sheetIds, newId] });
-    setNewSheetId({ name: '', value: '' });
-  };
-
-  const handleRemoveSheetId = (id: number) => {
-    setSettings({ ...settings, sheetIds: settings.sheetIds.filter(sheet => sheet.id !== id) });
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordMessage({ type: 'error', text: 'New passwords do not match.' });
+      return;
+    }
+    if (passwordForm.newPassword.length < 8) {
+      setPasswordMessage({ type: 'error', text: 'Password must be at least 8 characters.' });
+      return;
+    }
+    
+    const result = await SimulatedUserAPI.changePassword(userEmail, passwordForm.currentPassword, passwordForm.newPassword);
+    
+    if (result.success) {
+      setPasswordMessage({ type: 'success', text: 'Password changed successfully!' });
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      logActivity(`SuperAdmin password changed.`);
+    } else {
+      setPasswordMessage({ type: 'error', text: result.error });
+    }
   };
 
   return (
@@ -197,62 +213,40 @@ const SuperAdminSettings = ({ settings, setSettings }) => {
       <div className="setting-group">
         <h4>UI Customization</h4>
         <label htmlFor="bgColor">Background Color</label>
-        <input 
-          type="color" 
-          id="bgColor" 
-          value={settings.backgroundColor} 
-          onChange={(e) => setSettings({ ...settings, backgroundColor: e.target.value })}
-        />
+        <input type="color" id="bgColor" value={settings.backgroundColor} onChange={(e) => setSettings({ ...settings, backgroundColor: e.target.value })} />
+        <label htmlFor="primaryColor">Primary Color</label>
+        <input type="color" id="primaryColor" value={settings.primaryColor} onChange={(e) => setSettings({ ...settings, primaryColor: e.target.value })} />
+        <label htmlFor="textColor">Text Color</label>
+        <input type="color" id="textColor" value={settings.textColor} onChange={(e) => setSettings({ ...settings, textColor: e.target.value })} />
       </div>
+
+       <div className="setting-group">
+        <h4>Password Management</h4>
+        <form className="password-change-form" onSubmit={handlePasswordChange}>
+          <div className="form-group">
+            <label htmlFor="current-password">Current Password</label>
+            <input type="password" id="current-password" value={passwordForm.currentPassword} onChange={e => setPasswordForm({...passwordForm, currentPassword: e.target.value})} required/>
+          </div>
+          <div className="form-group">
+            <label htmlFor="new-password">New Password</label>
+            <input type="password" id="new-password" value={passwordForm.newPassword} onChange={e => setPasswordForm({...passwordForm, newPassword: e.target.value})} required/>
+          </div>
+          <div className="form-group">
+            <label htmlFor="confirm-password">Confirm New Password</label>
+            <input type="password" id="confirm-password" value={passwordForm.confirmPassword} onChange={e => setPasswordForm({...passwordForm, confirmPassword: e.target.value})} required/>
+          </div>
+          {passwordMessage.text && <p className={`${passwordMessage.type}-message`}>{passwordMessage.text}</p>}
+          <button type="submit" className="add-btn">Change Password</button>
+        </form>
+      </div>
+
       <div className="setting-group">
           <h4>AI Features</h4>
           <div className="toggle-switch">
-              <input
-                  type="checkbox"
-                  id="chat-toggle"
-                  checked={settings.isChatEnabled}
-                  onChange={e => setSettings({ ...settings, isChatEnabled: e.target.checked })}
-              />
+              <input type="checkbox" id="chat-toggle" checked={settings.isChatEnabled} onChange={e => setSettings({ ...settings, isChatEnabled: e.target.checked })} />
               <label htmlFor="chat-toggle" className="slider"></label>
               <span className="toggle-label">Enable AI Chat Assistant</span>
           </div>
-      </div>
-      <div className="setting-group">
-        <h4>API Key Management</h4>
-        <div className="warning-box">
-          <strong>Security Warning:</strong> Never expose API keys on the frontend. This UI is for demonstration only. Use a secure backend to store and use keys.
-        </div>
-        <div className="credential-list">
-            {settings.apiKeys.map((key) => (
-                <div key={key.id} className="credential-item">
-                    <span>{key.name}</span>
-                    <input type="password" value={key.value} readOnly disabled />
-                    <button onClick={() => handleRemoveApiKey(key.id)}>Remove</button>
-                </div>
-            ))}
-        </div>
-        <div className="add-credential-form">
-            <input type="text" placeholder="API Name (e.g., Gemini)" value={newApiKey.name} onChange={(e) => setNewApiKey({...newApiKey, name: e.target.value})}/>
-            <input type="password" placeholder="API Key Value" value={newApiKey.value} onChange={(e) => setNewApiKey({...newApiKey, value: e.target.value})}/>
-            <button onClick={handleAddApiKey} className="add-btn">Add Key</button>
-        </div>
-      </div>
-      <div className="setting-group">
-        <h4>Google Sheet IDs</h4>
-        <div className="credential-list">
-            {settings.sheetIds.map((sheet) => (
-                <div key={sheet.id} className="credential-item">
-                    <span>{sheet.name}</span>
-                    <input type="text" value={sheet.value} readOnly disabled />
-                    <button onClick={() => handleRemoveSheetId(sheet.id)}>Remove</button>
-                </div>
-            ))}
-        </div>
-        <div className="add-credential-form">
-            <input type="text" placeholder="Sheet Name (e.g., Main Data)" value={newSheetId.name} onChange={(e) => setNewSheetId({...newSheetId, name: e.target.value})}/>
-            <input type="text" placeholder="Sheet ID Value" value={newSheetId.value} onChange={(e) => setNewSheetId({...newSheetId, value: e.target.value})}/>
-            <button onClick={handleAddSheetId} className="add-btn">Add Sheet ID</button>
-        </div>
       </div>
     </div>
   );
@@ -268,7 +262,7 @@ const AdminSettings = () => (
   </div>
 );
 
-const SettingsPanel = ({ isOpen, onClose, role, settings, setSettings, onLogout }) => {
+const SettingsPanel = ({ isOpen, onClose, role, settings, setSettings, onLogout, userEmail, logActivity }) => {
   if (!isOpen) return null;
 
   return (
@@ -278,11 +272,11 @@ const SettingsPanel = ({ isOpen, onClose, role, settings, setSettings, onLogout 
             <CloseIcon />
         </button>
         <div className="settings-content">
-          {role === 'superadmin' && <SuperAdminSettings settings={settings} setSettings={setSettings} />}
+          {role === 'superadmin' && <SuperAdminSettings settings={settings} setSettings={setSettings} userEmail={userEmail} logActivity={logActivity} />}
           {role === 'admin' && <AdminSettings />}
         </div>
         <div className="settings-panel-footer">
-          <p>Logged in as: <strong>{role}</strong></p>
+          <p>Logged in as: <strong>{userEmail}</strong> ({role})</p>
           <button className="logout-btn" onClick={onLogout}>Logout</button>
         </div>
       </div>
@@ -396,43 +390,43 @@ const Chatbot = ({ roadData, isEnabled }) => {
 
 // --- Main App Components ---
 
-const RoadStatusDashboard = ({ allData, filteredData, searchTerm, setSearchTerm, statusFilter, setStatusFilter, loading, error }) => {
+const RoadStatusDashboard = ({ filteredData, searchTerm, setSearchTerm, statusFilter, setStatusFilter, loading, error }) => {
     return (
         <>
-            <div className="mb-4">
-                <input type="text" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Search by name..." className="p-2 border rounded w-full"/>
+            <div className="dashboard-controls">
+                <input type="text" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Search by name..." className="search-input"/>
+                <div className="filter-group">
+                    <button onClick={() => setStatusFilter('blocked')} className={`filter-btn ${statusFilter === 'blocked' ? 'active' : ''}`}>Blocked</button>
+                    <button onClick={() => setStatusFilter('one-lane')} className={`filter-btn ${statusFilter === 'one-lane' ? 'active' : ''}`}>One-lane</button>
+                    <button onClick={() => setStatusFilter('resumed')} className={`filter-btn ${statusFilter === 'resumed' ? 'active' : ''}`}>Resumed</button>
+                    <button onClick={() => setStatusFilter('all')} className={`filter-btn ${statusFilter === 'all' ? 'active' : ''}`}>All</button>
+                </div>
             </div>
-            <div className="mb-4 flex gap-2">
-                <button onClick={() => setStatusFilter('blocked')} className={`filterBtn p-2 rounded ${statusFilter === 'blocked' ? 'bg-blue-500 text-white' : 'bg-gray-300'}`}>Blocked</button>
-                <button onClick={() => setStatusFilter('one-lane')} className={`filterBtn p-2 rounded ${statusFilter === 'one-lane' ? 'bg-blue-500 text-white' : 'bg-gray-300'}`}>One-lane</button>
-                <button onClick={() => setStatusFilter('resumed')} className={`filterBtn p-2 rounded ${statusFilter === 'resumed' ? 'bg-blue-500 text-white' : 'bg-gray-300'}`}>Resumed</button>
-                <button onClick={() => setStatusFilter('all')} className={`filterBtn p-2 rounded ${statusFilter === 'all' ? 'bg-blue-500 text-white' : 'bg-gray-300'}`}>All</button>
-            </div>
-            <div id="content" className="border p-4 rounded bg-white dark:bg-gray-900">
+            <div id="content" className="content-panel">
                 {loading ? <p>Loading live data from Google Sheets...</p> : 
                  error ? <p className="error-message">{error}</p> : (
-                    <table className="w-full table-auto border-collapse border">
+                    <table className="data-table">
                         <thead>
-                        <tr className="bg-gray-200 dark:bg-gray-700">
-                            <th className="border p-2">Type</th>
-                            <th className="border p-2">Name</th>
-                            <th className="border p-2">Section / Location</th>
-                            <th className="border p-2">Status</th>
-                            <th className="border p-2">Cause</th>
-                            <th className="border p-2">Contact</th>
+                        <tr>
+                            <th>Type</th>
+                            <th>Name</th>
+                            <th>Section / Location</th>
+                            <th>Status</th>
+                            <th>Cause</th>
+                            <th>Contact</th>
                         </tr>
                         </thead>
                         <tbody>
                             {filteredData.map(r => (
                                 <tr key={r.uniqueId}>
-                                    <td className="border p-2 text-center">
+                                    <td className="text-center">
                                       <span className={`type-badge type-${r.type.toLowerCase()}`}>{r.type}</span>
                                     </td>
-                                    <td className="border p-2">{r.name}</td>
-                                    <td className="border p-2">{r.location}</td>
-                                    <td className="border p-2">{r.Status}</td>
-                                    <td className="border p-2">{r.Cause}</td>
-                                    <td className="border p-2">{r.Contact}</td>
+                                    <td>{r.name}</td>
+                                    <td>{r.location}</td>
+                                    <td>{r.Status}</td>
+                                    <td>{r.Cause}</td>
+                                    <td>{r.Contact}</td>
                                 </tr>
                             ))}
                         </tbody>
@@ -443,10 +437,11 @@ const RoadStatusDashboard = ({ allData, filteredData, searchTerm, setSearchTerm,
     );
 };
 
-const UserManagementDashboard = () => {
+const UserManagementDashboard = ({ logActivity }) => {
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [newUser, setNewUser] = useState({ email: '', role: 'user', status: 'Active' });
 
     useEffect(() => {
         const fetchUsers = async () => {
@@ -455,34 +450,77 @@ const UserManagementDashboard = () => {
             const response = await GoogleSheetAPI.getAdminAndUserData();
             if (response.success) {
                 setUsers(response.data);
+                logActivity("Fetched user data from Google Sheet.");
             } else {
                 setError(response.error);
+                logActivity(`Error fetching user data: ${response.error}`);
             }
             setLoading(false);
         };
         fetchUsers();
     }, []);
 
+    const handleAddUser = (e) => {
+        e.preventDefault();
+        if (!newUser.email) return;
+        const userExists = users.some(u => u.email === newUser.email);
+        if (userExists) {
+            alert('User with this email already exists.');
+            return;
+        }
+        const userToAdd = {
+            ...newUser,
+            uniqueId: `local-${Date.now()}`
+        };
+        setUsers([...users, userToAdd]);
+        logActivity(`Simulated add for user: ${newUser.email}`);
+        setNewUser({ email: '', role: 'user', status: 'Active' });
+    };
+
+    const handleRemoveUser = (uniqueId, email) => {
+        if (window.confirm(`Are you sure you want to remove ${email}?`)) {
+            setUsers(users.filter(u => u.uniqueId !== uniqueId));
+            logActivity(`Simulated remove for user: ${email}`);
+        }
+    };
+
+
     return (
-         <div id="content" className="border p-4 rounded bg-white dark:bg-gray-900">
+         <div id="content" className="content-panel">
+            <div className="add-user-form-container">
+                <h4>Add New User</h4>
+                <form onSubmit={handleAddUser} className="add-user-form">
+                    <input type="email" placeholder="Email Address" value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})} required />
+                    <select value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value})}>
+                        <option value="user">User</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                    <button type="submit" className="add-btn">Add User</button>
+                </form>
+                 <p className="form-note">Note: This is a frontend simulation. Adding/removing users here will not update your Google Sheet.</p>
+            </div>
             {loading ? <p>Loading users from Google Sheets...</p> : 
              error ? <p className="error-message">{error}</p> : (
-                <table className="w-full table-auto border-collapse border">
+                <table className="data-table">
                     <thead>
-                    <tr className="bg-gray-200 dark:bg-gray-700">
-                        <th className="border p-2">Email</th>
-                        <th className="border p-2">Role</th>
-                        <th className="border p-2">Status</th>
+                    <tr>
+                        <th>Email</th>
+                        <th>Role</th>
+                        <th>Status</th>
+                        <th>Actions</th>
                     </tr>
                     </thead>
                     <tbody>
                         {users.map(u => (
                             <tr key={u.uniqueId}>
-                                <td className="border p-2">{u.email}</td>
-                                <td className="border p-2 text-center">
+                                <td>{u.email}</td>
+                                <td className="text-center">
                                     <span className={`role-badge role-${u.role.toLowerCase().replace(/\s+/g, '-')}`}>{u.role}</span>
                                 </td>
-                                <td className="border p-2">{u.status || 'Active'}</td>
+                                <td>{u.status || 'Active'}</td>
+                                <td className="text-center">
+                                    <button onClick={() => handleRemoveUser(u.uniqueId, u.email)} className="remove-btn">Remove</button>
+                                </td>
                             </tr>
                         ))}
                     </tbody>
@@ -492,8 +530,56 @@ const UserManagementDashboard = () => {
     );
 };
 
+const AnalyticsDashboard = () => {
+    return (
+        <div className="content-panel">
+            <div className="analytics-grid">
+                <div className="stat-card">
+                    <h4>Total Users</h4>
+                    <p className="stat-number">1,254</p>
+                </div>
+                <div className="stat-card">
+                    <h4>Active Incidents</h4>
+                    <p className="stat-number">32</p>
+                </div>
+                <div className="stat-card">
+                    <h4>Reports Today</h4>
+                    <p className="stat-number">112</p>
+                </div>
+                <div className="stat-card">
+                    <h4>AI Queries</h4>
+                    <p className="stat-number">486</p>
+                </div>
+            </div>
+            <div className="chart-placeholder">
+                <p>User Activity Over Time (Chart)</p>
+            </div>
+            <div className="chart-placeholder">
+                 <p>Incident Reports by Type (Chart)</p>
+            </div>
+        </div>
+    );
+};
 
-const DashboardPage = ({ role, isChatEnabled }) => {
+const ActivityLogDashboard = ({ logs }) => {
+    return (
+        <div className="content-panel">
+            <div className="activity-log-container">
+                {logs.length === 0 ? <p>No activity recorded in this session yet.</p> : 
+                    logs.map(log => (
+                        <div key={log.id} className="log-entry">
+                            <span className="log-timestamp">{log.timestamp}</span>
+                            <p className="log-message">{log.message}</p>
+                        </div>
+                    ))
+                }
+            </div>
+        </div>
+    );
+};
+
+
+const DashboardPage = ({ role, logActivity, activityLog, isChatEnabled }) => {
     const [allData, setAllData] = useState([]);
     const [filteredData, setFilteredData] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -506,12 +592,15 @@ const DashboardPage = ({ role, isChatEnabled }) => {
         const fetchData = async () => {
             setLoading(true);
             setError(null);
+            logActivity("Fetching road and bridge data...");
             const response = await GoogleSheetAPI.getRoadAndBridgeData();
             if (response.success) {
                 setAllData(response.data);
                 setFilteredData(response.data);
+                logActivity("Successfully fetched road and bridge data.");
             } else {
                 setError(response.error);
+                logActivity(`Error fetching road/bridge data: ${response.error}`);
             }
             setLoading(false);
         };
@@ -521,7 +610,7 @@ const DashboardPage = ({ role, isChatEnabled }) => {
     useEffect(() => {
         let data = allData;
         if (statusFilter !== 'all') {
-            data = data.filter(r => r.Status && r.Status.toLowerCase() === statusFilter);
+            data = data.filter(r => r.Status && r.Status.toLowerCase().replace(/ /g, '-') === statusFilter);
         }
         if (searchTerm) {
             data = data.filter(r => r.name.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -542,24 +631,15 @@ const DashboardPage = ({ role, isChatEnabled }) => {
              
              {role === 'superadmin' && (
                 <div className="dashboard-tabs">
-                    <button 
-                        className={`tab-btn ${activeTab === 'status' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('status')}
-                    >
-                        Road/Bridge Status
-                    </button>
-                    <button 
-                        className={`tab-btn ${activeTab === 'users' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('users')}
-                    >
-                        User Management
-                    </button>
+                    <button className={`tab-btn ${activeTab === 'status' ? 'active' : ''}`} onClick={() => setActiveTab('status')}>Road/Bridge Status</button>
+                    <button className={`tab-btn ${activeTab === 'users' ? 'active' : ''}`} onClick={() => setActiveTab('users')}>User Management</button>
+                    <button className={`tab-btn ${activeTab === 'analytics' ? 'active' : ''}`} onClick={() => setActiveTab('analytics')}>Analytics</button>
+                    <button className={`tab-btn ${activeTab === 'logs' ? 'active' : ''}`} onClick={() => setActiveTab('logs')}>Activity Log</button>
                 </div>
              )}
 
             {activeTab === 'status' && (
                 <RoadStatusDashboard 
-                    allData={allData}
                     filteredData={filteredData}
                     searchTerm={searchTerm}
                     setSearchTerm={setSearchTerm}
@@ -570,9 +650,9 @@ const DashboardPage = ({ role, isChatEnabled }) => {
                 />
             )}
             
-            {activeTab === 'users' && role === 'superadmin' && (
-                <UserManagementDashboard />
-            )}
+            {activeTab === 'users' && role === 'superadmin' && <UserManagementDashboard logActivity={logActivity}/>}
+            {activeTab === 'analytics' && role === 'superadmin' && <AnalyticsDashboard />}
+            {activeTab === 'logs' && role === 'superadmin' && <ActivityLogDashboard logs={activityLog} />}
 
             <Chatbot roadData={allData} isEnabled={isChatEnabled} />
         </main>
@@ -583,18 +663,38 @@ const DashboardPage = ({ role, isChatEnabled }) => {
 const App = ({ role, userEmail, onLogout }) => {
   const [isSettingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState({
-      backgroundColor: '#FFFFFF', // Changed default to white for dashboard
+      backgroundColor: '#F3F4F6',
+      primaryColor: '#3B82F6',
+      textColor: '#1F2937',
       apiKeys: [] as ApiKey[],
       sheetIds: [] as SheetId[],
       isChatEnabled: true
   });
+  const [activityLog, setActivityLog] = useState<ActivityLog[]>([]);
 
   const canShowSettings = useMemo(() => role === 'admin' || role === 'superadmin', [role]);
   
+  const logActivity = (message: string) => {
+    const newLog: ActivityLog = {
+      id: Date.now(),
+      timestamp: new Date().toLocaleTimeString(),
+      message: message
+    };
+    setActivityLog(prev => [newLog, ...prev]);
+  };
+
+  useEffect(() => {
+    logActivity(`User ${userEmail} logged in with role: ${role}.`);
+  }, []);
+
   // Apply dynamic styles
   useEffect(() => {
-    document.body.style.backgroundColor = settings.backgroundColor;
-  }, [settings.backgroundColor]);
+    const root = document.documentElement;
+    root.style.setProperty('--background-color', settings.backgroundColor);
+    root.style.setProperty('--primary-color', settings.primaryColor);
+    root.style.setProperty('--text-color', settings.textColor);
+    logActivity(`UI theme updated.`);
+  }, [settings.backgroundColor, settings.primaryColor, settings.textColor]);
 
   return (
     <div className="app-container">
@@ -605,6 +705,8 @@ const App = ({ role, userEmail, onLogout }) => {
         settings={settings}
         setSettings={setSettings}
         onLogout={onLogout}
+        userEmail={userEmail}
+        logActivity={logActivity}
       />
       
       <header className="app-header">
@@ -619,7 +721,7 @@ const App = ({ role, userEmail, onLogout }) => {
         </div>
       </header>
 
-      <DashboardPage role={role} isChatEnabled={settings.isChatEnabled} />
+      <DashboardPage role={role} isChatEnabled={settings.isChatEnabled} logActivity={logActivity} activityLog={activityLog} />
 
     </div>
   );
@@ -781,7 +883,7 @@ const LoginScreen = ({ onLoginSuccess }) => {
                   <input type="password" id="new-password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required />
                 </div>
                 <div className="form-group">
-                  <label htmlFor="confirm-password">Confirm Password</label>
+                  <label htmlFor="confirm-password">Confirm New Password</label>
                   <input type="password" id="confirm-password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required />
                 </div>
                 <button type="submit" className="login-btn" disabled={loading}>{loading ? 'Resetting...' : 'Reset Password'}</button>
