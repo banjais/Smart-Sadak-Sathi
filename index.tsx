@@ -61,54 +61,73 @@ const SimulatedUserAPI = {
 // --- LIVE GOOGLE SHEET API ---
 const GoogleSheetAPI = {
     _sheetId: '1gfbACf6IkjNhrC_xUDuiFPUyOmgqsuU8mqKVED7Gook',
+    // NOTE: Replace these GIDs with the actual ones from your sheet's URL
     _roadSheetGid: '1775100935',
     _bridgeSheetGid: '0',
+    _adminSheetGid: '123456789', // Replace with your "Admin" sheet GID
+    _userSheetGid: '987654321', // Replace with your "User" sheet GID
 
     _csvToJson(csv: string) {
-        const lines = csv.split('\n');
-        const headers = lines[0].split(',').map(h => h.trim());
+        if (!csv) return [];
+        const lines = csv.split('\n').filter(line => line.trim() !== '');
+        if (lines.length < 2) return [];
+        const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
         const result = [];
         for (let i = 1; i < lines.length; i++) {
             const obj = {};
-            const currentLine = lines[i].split(',');
+            // Basic CSV parsing, may need improvement for complex cases
+            const currentLine = lines[i].split(',').map(c => c.trim().replace(/"/g, ''));
             if (currentLine.length < headers.length) continue;
             for (let j = 0; j < headers.length; j++) {
-                obj[headers[j]] = currentLine[j].trim();
+                obj[headers[j]] = currentLine[j];
             }
             result.push(obj);
         }
         return result;
     },
 
+    async _fetchSheetData(gid: string) {
+        const url = `https://docs.google.com/spreadsheets/d/${this._sheetId}/export?format=csv&gid=${gid}`;
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch sheet with GID: ${gid}`);
+        }
+        return response.text();
+    },
+
     async getRoadAndBridgeData() {
-        const roadUrl = `https://docs.google.com/spreadsheets/d/${this._sheetId}/export?format=csv&gid=${this._roadSheetGid}`;
-        const bridgeUrl = `https://docs.google.com/spreadsheets/d/${this._sheetId}/export?format=csv&gid=${this._bridgeSheetGid}`;
-
         try {
-            const [roadRes, bridgeRes] = await Promise.all([
-                fetch(roadUrl),
-                fetch(bridgeUrl)
-            ]);
-
-            if (!roadRes.ok || !bridgeRes.ok) {
-                throw new Error('Failed to fetch data from Google Sheets.');
-            }
-
             const [roadCsv, bridgeCsv] = await Promise.all([
-                roadRes.text(),
-                bridgeRes.text()
+                this._fetchSheetData(this._roadSheetGid),
+                this._fetchSheetData(this._bridgeSheetGid)
             ]);
             
-            const roadJson = this._csvToJson(roadCsv).map(r => ({ ...r, type: 'Road', name: r.HighwayName, location: r.Section, uniqueId: `road-${r.id}` }));
-            const bridgeJson = this._csvToJson(bridgeCsv).map(b => ({ ...b, type: 'Bridge', name: b.BridgeName, location: b.Location, uniqueId: `bridge-${b.id}`}));
+            const roadJson = this._csvToJson(roadCsv).map((r, index) => ({ ...r, type: 'Road', name: r.HighwayName, location: r.Section, uniqueId: `road-${r.id || index}` }));
+            const bridgeJson = this._csvToJson(bridgeCsv).map((b, index) => ({ ...b, type: 'Bridge', name: b.BridgeName, location: b.Location, uniqueId: `bridge-${b.id || index}`}));
             
             const combinedData = [...roadJson, ...bridgeJson];
-
             return { success: true, data: combinedData };
+        } catch (error) {
+            console.error("Error fetching road/bridge data:", error);
+            return { success: false, error: 'Could not load road/bridge data. Please check the connection and sheet permissions.' };
+        }
+    },
+    
+    async getAdminAndUserData() {
+        try {
+            const [adminCsv, userCsv] = await Promise.all([
+                this._fetchSheetData(this._adminSheetGid),
+                this._fetchSheetData(this._userSheetGid)
+            ]);
+            
+            const adminJson = this._csvToJson(adminCsv).map((a, index) => ({ ...a, role: 'Admin', uniqueId: `admin-${a.id || index}` }));
+            const userJson = this._csvToJson(userCsv).map((u, index) => ({ ...u, role: 'User', uniqueId: `user-${u.id || index}` }));
+            
+            return { success: true, data: [...adminJson, ...userJson] };
 
         } catch (error) {
-            console.error("Error fetching Google Sheet data:", error);
-            return { success: false, error: 'Could not load data. Please check the connection and sheet permissions.' };
+            console.error("Error fetching admin/user data:", error);
+            return { success: false, error: 'Could not load user data. Please verify the "Admin" and "User" sheet GIDs in the code and check sheet permissions.' };
         }
     }
 };
@@ -374,68 +393,18 @@ const Chatbot = ({ roadData, isEnabled }) => {
 
 // --- Main App Components ---
 
-const DashboardPage = ({ isChatEnabled }) => {
-    const [allData, setAllData] = useState([]);
-    const [filteredData, setFilteredData] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [statusFilter, setStatusFilter] = useState('all');
-
-    useEffect(() => {
-        const fetchData = async () => {
-            setLoading(true);
-            setError(null);
-            const response = await GoogleSheetAPI.getRoadAndBridgeData();
-            if (response.success) {
-                setAllData(response.data);
-                setFilteredData(response.data);
-            } else {
-                setError(response.error);
-            }
-            setLoading(false);
-        };
-        fetchData();
-    }, []);
-    
-    useEffect(() => {
-        let data = allData;
-        if (statusFilter !== 'all') {
-            data = data.filter(r => r.Status && r.Status.toLowerCase() === statusFilter);
-        }
-        if (searchTerm) {
-            data = data.filter(r => r.name.toLowerCase().includes(searchTerm.toLowerCase()));
-        }
-        setFilteredData(data);
-    }, [searchTerm, statusFilter, allData]);
-
-    const summaryData = useMemo(() => {
-        return allData.reduce((acc, road) => {
-            const status = road.Status || 'Unknown';
-            acc[status] = (acc[status] || 0) + 1;
-            return acc;
-        }, {});
-    }, [allData]);
-
+const RoadStatusDashboard = ({ allData, filteredData, searchTerm, setSearchTerm, statusFilter, setStatusFilter, loading, error }) => {
     return (
-        <main className="main-content dashboard">
-             <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-bold">Dashboard</h2>
-                <div className="flex gap-2">
-                    <button className="p-2 bg-green-500 text-white rounded">Print</button>
-                    <button className="p-2 bg-yellow-500 text-white rounded">Share</button>
-                </div>
-            </div>
-             <div className="mb-4">
+        <>
+            <div className="mb-4">
                 <input type="text" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Search by name..." className="p-2 border rounded w-full"/>
-             </div>
-             <div className="mb-4 flex gap-2">
+            </div>
+            <div className="mb-4 flex gap-2">
                 <button onClick={() => setStatusFilter('blocked')} className={`filterBtn p-2 rounded ${statusFilter === 'blocked' ? 'bg-blue-500 text-white' : 'bg-gray-300'}`}>Blocked</button>
                 <button onClick={() => setStatusFilter('one-lane')} className={`filterBtn p-2 rounded ${statusFilter === 'one-lane' ? 'bg-blue-500 text-white' : 'bg-gray-300'}`}>One-lane</button>
                 <button onClick={() => setStatusFilter('resumed')} className={`filterBtn p-2 rounded ${statusFilter === 'resumed' ? 'bg-blue-500 text-white' : 'bg-gray-300'}`}>Resumed</button>
                 <button onClick={() => setStatusFilter('all')} className={`filterBtn p-2 rounded ${statusFilter === 'all' ? 'bg-blue-500 text-white' : 'bg-gray-300'}`}>All</button>
             </div>
-
             <div id="content" className="border p-4 rounded bg-white dark:bg-gray-900">
                 {loading ? <p>Loading live data from Google Sheets...</p> : 
                  error ? <p className="error-message">{error}</p> : (
@@ -467,6 +436,141 @@ const DashboardPage = ({ isChatEnabled }) => {
                     </table>
                 )}
             </div>
+        </>
+    );
+};
+
+const UserManagementDashboard = () => {
+    const [users, setUsers] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+
+    useEffect(() => {
+        const fetchUsers = async () => {
+            setLoading(true);
+            setError(null);
+            const response = await GoogleSheetAPI.getAdminAndUserData();
+            if (response.success) {
+                setUsers(response.data);
+            } else {
+                setError(response.error);
+            }
+            setLoading(false);
+        };
+        fetchUsers();
+    }, []);
+
+    return (
+         <div id="content" className="border p-4 rounded bg-white dark:bg-gray-900">
+            {loading ? <p>Loading users from Google Sheets...</p> : 
+             error ? <p className="error-message">{error}</p> : (
+                <table className="w-full table-auto border-collapse border">
+                    <thead>
+                    <tr className="bg-gray-200 dark:bg-gray-700">
+                        <th className="border p-2">Email</th>
+                        <th className="border p-2">Role</th>
+                        <th className="border p-2">Status</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                        {users.map(u => (
+                            <tr key={u.uniqueId}>
+                                <td className="border p-2">{u.email}</td>
+                                <td className="border p-2 text-center">
+                                    <span className={`role-badge role-${u.role.toLowerCase()}`}>{u.role}</span>
+                                </td>
+                                <td className="border p-2">{u.status || 'Active'}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            )}
+        </div>
+    );
+};
+
+
+const DashboardPage = ({ role, isChatEnabled }) => {
+    const [allData, setAllData] = useState([]);
+    const [filteredData, setFilteredData] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [statusFilter, setStatusFilter] = useState('all');
+    const [activeTab, setActiveTab] = useState('status');
+
+    useEffect(() => {
+        const fetchData = async () => {
+            setLoading(true);
+            setError(null);
+            const response = await GoogleSheetAPI.getRoadAndBridgeData();
+            if (response.success) {
+                setAllData(response.data);
+                setFilteredData(response.data);
+            } else {
+                setError(response.error);
+            }
+            setLoading(false);
+        };
+        fetchData();
+    }, []);
+    
+    useEffect(() => {
+        let data = allData;
+        if (statusFilter !== 'all') {
+            data = data.filter(r => r.Status && r.Status.toLowerCase() === statusFilter);
+        }
+        if (searchTerm) {
+            data = data.filter(r => r.name.toLowerCase().includes(searchTerm.toLowerCase()));
+        }
+        setFilteredData(data);
+    }, [searchTerm, statusFilter, allData]);
+
+
+    return (
+        <main className="main-content dashboard">
+             <div className="flex justify-between items-center mb-4">
+                <h2 className="text-2xl font-bold">Dashboard</h2>
+                <div className="flex gap-2">
+                    <button className="p-2 bg-green-500 text-white rounded">Print</button>
+                    <button className="p-2 bg-yellow-500 text-white rounded">Share</button>
+                </div>
+            </div>
+             
+             {role === 'superadmin' && (
+                <div className="dashboard-tabs">
+                    <button 
+                        className={`tab-btn ${activeTab === 'status' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('status')}
+                    >
+                        Road/Bridge Status
+                    </button>
+                    <button 
+                        className={`tab-btn ${activeTab === 'users' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('users')}
+                    >
+                        User Management
+                    </button>
+                </div>
+             )}
+
+            {activeTab === 'status' && (
+                <RoadStatusDashboard 
+                    allData={allData}
+                    filteredData={filteredData}
+                    searchTerm={searchTerm}
+                    setSearchTerm={setSearchTerm}
+                    statusFilter={statusFilter}
+                    setStatusFilter={setStatusFilter}
+                    loading={loading}
+                    error={error}
+                />
+            )}
+            
+            {activeTab === 'users' && role === 'superadmin' && (
+                <UserManagementDashboard />
+            )}
+
             <Chatbot roadData={allData} isEnabled={isChatEnabled} />
         </main>
     );
@@ -512,7 +616,7 @@ const App = ({ role, userEmail, onLogout }) => {
         </div>
       </header>
 
-      <DashboardPage isChatEnabled={settings.isChatEnabled} />
+      <DashboardPage role={role} isChatEnabled={settings.isChatEnabled} />
 
     </div>
   );
