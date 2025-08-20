@@ -2,8 +2,10 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
 */
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom/client';
+import { GoogleGenAI, Chat } from "@google/genai";
+
 
 type UserRole = 'guest' | 'admin' | 'superadmin' | 'user';
 type AuthStatus = {
@@ -14,6 +16,7 @@ type AuthStatus = {
 type ApiKey = { id: number; name: string; value: string };
 type SheetId = { id: number; name: string; value: string };
 type LoginView = 'login' | 'forgot' | 'otp' | 'reset_success';
+type Message = { id: number; text: string; sender: 'user' | 'ai' };
 
 // --- SIMULATED BACKEND API ---
 // This object mimics a secure backend server. In a real application,
@@ -86,6 +89,19 @@ const CloseIcon = () => (
     </svg>
 );
 
+const ChatIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+    </svg>
+);
+
+const SendIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="22" y1="2" x2="11" y2="13"></line>
+        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+    </svg>
+);
+
 // --- Settings Panel Components ---
 const SuperAdminSettings = ({ settings, setSettings }) => {
   const [newApiKey, setNewApiKey] = useState({ name: '', value: '' });
@@ -125,6 +141,19 @@ const SuperAdminSettings = ({ settings, setSettings }) => {
           value={settings.backgroundColor} 
           onChange={(e) => setSettings({ ...settings, backgroundColor: e.target.value })}
         />
+      </div>
+      <div className="setting-group">
+          <h4>AI Features</h4>
+          <div className="toggle-switch">
+              <input
+                  type="checkbox"
+                  id="chat-toggle"
+                  checked={settings.isChatEnabled}
+                  onChange={e => setSettings({ ...settings, isChatEnabled: e.target.checked })}
+              />
+              <label htmlFor="chat-toggle" className="slider"></label>
+              <span className="toggle-label">Enable AI Chat Assistant</span>
+          </div>
       </div>
       <div className="setting-group">
         <h4>API Key Management</h4>
@@ -199,9 +228,113 @@ const SettingsPanel = ({ isOpen, onClose, role, settings, setSettings, onLogout 
   );
 };
 
+// --- AI Chatbot Component ---
+const Chatbot = ({ roadData, isEnabled }) => {
+    const [isOpen, setOpen] = useState(false);
+    const [messages, setMessages] = useState<Message[]>([
+        { id: 1, text: "Hello! I'm Sadak Sathi's AI assistant. Ask me about the current road conditions.", sender: 'ai' }
+    ]);
+    const [userInput, setUserInput] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
+    const chatRef = useRef<Chat | null>(null);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [messages, isLoading]);
+
+    useEffect(() => {
+        if (!roadData || roadData.length === 0) return;
+
+        try {
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            const systemInstruction = `You are 'Sadak Sathi AI', a helpful assistant for road conditions in Nepal. Your knowledge is strictly limited to the data provided below. Do not invent information or use external knowledge. If the user asks about something not in the data, state that you don't have information on it. Keep your answers friendly and concise.\n\nCURRENT ROAD DATA:\n${JSON.stringify(roadData, null, 2)}`;
+            
+            chatRef.current = ai.chats.create({
+                model: 'gemini-2.5-flash',
+                config: { systemInstruction },
+            });
+        } catch(e) {
+            console.error("Failed to initialize Gemini AI:", e);
+             setMessages(prev => [...prev, {id: Date.now(), text: "Sorry, the AI assistant could not be initialized.", sender: 'ai'}]);
+        }
+
+    }, [roadData]);
+
+    const handleSendMessage = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!userInput.trim() || isLoading || !chatRef.current) return;
+
+        const newUserMessage: Message = { id: Date.now(), text: userInput, sender: 'user' };
+        setMessages(prev => [...prev, newUserMessage]);
+        setUserInput('');
+        setIsLoading(true);
+
+        try {
+            const response = await chatRef.current.sendMessage({ message: userInput });
+            const aiMessage: Message = { id: Date.now() + 1, text: response.text, sender: 'ai' };
+            setMessages(prev => [...prev, aiMessage]);
+        } catch (error) {
+            console.error("Gemini API error:", error);
+            const errorMessage: Message = { id: Date.now() + 1, text: "Sorry, I encountered an error. Please try again.", sender: 'ai' };
+            setMessages(prev => [...prev, errorMessage]);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    if (!isEnabled) return null;
+
+    return (
+        <>
+            <button className="chat-fab" onClick={() => setOpen(!isOpen)} aria-label="Open chat assistant">
+                {isOpen ? <CloseIcon /> : <ChatIcon />}
+            </button>
+            {isOpen && (
+                <div className="chat-window">
+                    <div className="chat-header">
+                        <h3>AI Assistant</h3>
+                        <button onClick={() => setOpen(false)} aria-label="Close chat">
+                            <CloseIcon/>
+                        </button>
+                    </div>
+                    <div className="chat-messages">
+                        {messages.map(msg => (
+                            <div key={msg.id} className={`chat-message ${msg.sender}-message`}>
+                                {msg.text}
+                            </div>
+                        ))}
+                        {isLoading && (
+                           <div className="chat-message ai-message">
+                               <div className="typing-indicator">
+                                   <span></span><span></span><span></span>
+                               </div>
+                           </div>
+                        )}
+                        <div ref={messagesEndRef} />
+                    </div>
+                    <form className="chat-input-form" onSubmit={handleSendMessage}>
+                        <input
+                            type="text"
+                            value={userInput}
+                            onChange={(e) => setUserInput(e.target.value)}
+                            placeholder="Ask about roads..."
+                            disabled={isLoading}
+                        />
+                        <button type="submit" disabled={isLoading || !userInput.trim()}>
+                            <SendIcon/>
+                        </button>
+                    </form>
+                </div>
+            )}
+        </>
+    );
+};
+
+
 // --- Main App Components ---
 
-const DashboardPage = () => {
+const DashboardPage = ({ isChatEnabled }) => {
     const [allRoads, setAllRoads] = useState([]);
     const [filteredRoads, setFilteredRoads] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -284,6 +417,7 @@ const DashboardPage = () => {
                     </table>
                 )}
             </div>
+            <Chatbot roadData={allRoads} isEnabled={isChatEnabled} />
         </main>
     );
 };
@@ -294,7 +428,8 @@ const App = ({ role, userEmail, onLogout }) => {
   const [settings, setSettings] = useState({
       backgroundColor: '#FFFFFF', // Changed default to white for dashboard
       apiKeys: [] as ApiKey[],
-      sheetIds: [] as SheetId[]
+      sheetIds: [] as SheetId[],
+      isChatEnabled: true
   });
 
   const canShowSettings = useMemo(() => role === 'admin' || role === 'superadmin', [role]);
@@ -327,7 +462,7 @@ const App = ({ role, userEmail, onLogout }) => {
         </div>
       </header>
 
-      <DashboardPage />
+      <DashboardPage isChatEnabled={settings.isChatEnabled} />
 
     </div>
   );
