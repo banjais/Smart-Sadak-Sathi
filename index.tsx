@@ -103,11 +103,16 @@ const GoogleSheetAPI = {
 
     async _fetchSheetData(gid: string) {
         const url = `https://docs.google.com/spreadsheets/d/${this._sheetId}/export?format=csv&gid=${gid}`;
-        const response = await fetch(url);
-        if (!response.ok) {
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.text();
+        } catch (error) {
+            console.error("Error fetching sheet with GID:", gid, error);
             throw new Error(`Failed to fetch sheet with GID: ${gid}`);
         }
-        return response.text();
     },
 
     async getRoadAndBridgeData() {
