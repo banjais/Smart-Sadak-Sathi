@@ -18,6 +18,7 @@ type SheetId = { id: number; name: string; value: string };
 type LoginView = 'login' | 'forgot' | 'otp' | 'reset_success';
 type Message = { id: number; text: string; sender: 'user' | 'ai' };
 type ActivityLog = { id: number; timestamp: string; message: string; };
+type AppView = 'dashboard' | 'users' | 'analytics' | 'logs' | 'route-planner';
 
 // --- SIMULATED BACKEND API ---
 // This object mimics a secure backend server for user authentication.
@@ -178,6 +179,15 @@ const SendIcon = () => (
     </svg>
 );
 
+const DashboardIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>);
+const UsersIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>);
+const AnalyticsIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>);
+const LogIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>);
+const RouteIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="19" r="3"></circle><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H13"></path><circle cx="18" cy="5" r="3"></circle></svg>);
+const LogoutIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>);
+const ChevronLeftIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>);
+
+
 // --- Settings Panel Components ---
 const SuperAdminSettings = ({ settings, setSettings, userEmail, logActivity }) => {
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
@@ -274,10 +284,6 @@ const SettingsPanel = ({ isOpen, onClose, role, settings, setSettings, onLogout,
         <div className="settings-content">
           {role === 'superadmin' && <SuperAdminSettings settings={settings} setSettings={setSettings} userEmail={userEmail} logActivity={logActivity} />}
           {role === 'admin' && <AdminSettings />}
-        </div>
-        <div className="settings-panel-footer">
-          <p>Logged in as: <strong>{userEmail}</strong> ({role})</p>
-          <button className="logout-btn" onClick={onLogout}>Logout</button>
         </div>
       </div>
     </div>
@@ -458,7 +464,7 @@ const UserManagementDashboard = ({ logActivity }) => {
             setLoading(false);
         };
         fetchUsers();
-    }, []);
+    }, [logActivity]);
 
     const handleAddUser = (e) => {
         e.preventDefault();
@@ -578,15 +584,93 @@ const ActivityLogDashboard = ({ logs }) => {
     );
 };
 
+const RoutePlanner = ({ roadData, logActivity }) => {
+    const [startPoint, setStartPoint] = useState('');
+    const [endPoint, setEndPoint] = useState('');
+    const [route, setRoute] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
 
-const DashboardPage = ({ role, logActivity, activityLog, isChatEnabled }) => {
+    const findRoute = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!startPoint.trim() || !endPoint.trim()) {
+            setError("Please enter both a start and end location.");
+            return;
+        }
+
+        setLoading(true);
+        setError('');
+        setRoute('');
+        logActivity(`Route requested from ${startPoint} to ${endPoint}`);
+        
+        try {
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            const prompt = `You are a helpful route planning assistant for Nepal. Your primary goal is to provide a clear, step-by-step driving route from a starting point to a destination.
+
+You MUST use the provided real-time road and bridge data to inform your route. If any part of the suggested route is affected by a known issue (like 'blocked' or 'one-lane'), you MUST explicitly warn the user about it in your response.
+
+**User Request:**
+Start: ${startPoint}
+End: ${endPoint}
+
+**Real-time Road & Bridge Data:**
+${JSON.stringify(roadData, null, 2)}
+
+Provide the route as a clear, step-by-step list. If you identify any issues on the route from the data, add a "Warning" section. Do not use any external knowledge. If you cannot determine a route, say so.`;
+
+            const response = await ai.models.generateContent({
+              model: 'gemini-2.5-flash',
+              contents: prompt,
+            });
+
+            setRoute(response.text);
+            logActivity(`Route successfully generated.`);
+
+        } catch (err) {
+            console.error("Gemini API error in Route Planner:", err);
+            setError("Sorry, the AI route planner encountered an error. Please try again.");
+            logActivity(`Route generation failed.`);
+        } finally {
+            setLoading(false);
+        }
+    };
+    
+    return (
+        <div className="content-panel route-planner-container">
+            <form onSubmit={findRoute} className="route-planner-form">
+                <div className="route-inputs">
+                    <input type="text" value={startPoint} onChange={e => setStartPoint(e.target.value)} placeholder="Enter start location" />
+                    <input type="text" value={endPoint} onChange={e => setEndPoint(e.target.value)} placeholder="Enter end location" />
+                </div>
+                <button type="submit" className="find-route-btn" disabled={loading}>
+                    {loading ? 'Finding...' : 'Find Route'}
+                </button>
+            </form>
+
+            {error && <p className="error-message">{error}</p>}
+            
+            <div className="route-results">
+                {loading && (
+                    <div className="loading-spinner">
+                        <div></div><div></div><div></div><div></div>
+                    </div>
+                )}
+                {route && (
+                    <div className="route-output" dangerouslySetInnerHTML={{ __html: route.replace(/\n/g, '<br />') }}></div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+
+const DashboardPage = ({ role, logActivity, activityLog, isChatEnabled, activeView }) => {
     const [allData, setAllData] = useState([]);
     const [filteredData, setFilteredData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('all');
-    const [activeTab, setActiveTab] = useState('status');
 
     useEffect(() => {
         const fetchData = async () => {
@@ -605,7 +689,7 @@ const DashboardPage = ({ role, logActivity, activityLog, isChatEnabled }) => {
             setLoading(false);
         };
         fetchData();
-    }, []);
+    }, [logActivity]);
     
     useEffect(() => {
         let data = allData;
@@ -617,29 +701,19 @@ const DashboardPage = ({ role, logActivity, activityLog, isChatEnabled }) => {
         }
         setFilteredData(data);
     }, [searchTerm, statusFilter, allData]);
+    
+    const viewTitles = {
+      'dashboard': 'Road/Bridge Status',
+      'users': 'User Management',
+      'analytics': 'Analytics',
+      'logs': 'Activity Log',
+      'route-planner': 'AI Route Planner',
+    };
 
-
-    return (
-        <main className="main-content dashboard">
-             <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-bold">Dashboard</h2>
-                <div className="flex gap-2">
-                    <button className="p-2 bg-green-500 text-white rounded">Print</button>
-                    <button className="p-2 bg-yellow-500 text-white rounded">Share</button>
-                </div>
-            </div>
-             
-             {role === 'superadmin' && (
-                <div className="dashboard-tabs">
-                    <button className={`tab-btn ${activeTab === 'status' ? 'active' : ''}`} onClick={() => setActiveTab('status')}>Road/Bridge Status</button>
-                    <button className={`tab-btn ${activeTab === 'users' ? 'active' : ''}`} onClick={() => setActiveTab('users')}>User Management</button>
-                    <button className={`tab-btn ${activeTab === 'analytics' ? 'active' : ''}`} onClick={() => setActiveTab('analytics')}>Analytics</button>
-                    <button className={`tab-btn ${activeTab === 'logs' ? 'active' : ''}`} onClick={() => setActiveTab('logs')}>Activity Log</button>
-                </div>
-             )}
-
-            {activeTab === 'status' && (
-                <RoadStatusDashboard 
+    const renderContent = () => {
+        switch(activeView) {
+            case 'dashboard':
+                return <RoadStatusDashboard 
                     filteredData={filteredData}
                     searchTerm={searchTerm}
                     setSearchTerm={setSearchTerm}
@@ -647,32 +721,117 @@ const DashboardPage = ({ role, logActivity, activityLog, isChatEnabled }) => {
                     setStatusFilter={setStatusFilter}
                     loading={loading}
                     error={error}
-                />
-            )}
-            
-            {activeTab === 'users' && role === 'superadmin' && <UserManagementDashboard logActivity={logActivity}/>}
-            {activeTab === 'analytics' && role === 'superadmin' && <AnalyticsDashboard />}
-            {activeTab === 'logs' && role === 'superadmin' && <ActivityLogDashboard logs={activityLog} />}
+                />;
+            case 'users': return role === 'superadmin' ? <UserManagementDashboard logActivity={logActivity}/> : null;
+            case 'analytics': return role === 'superadmin' ? <AnalyticsDashboard /> : null;
+            case 'logs': return role === 'superadmin' ? <ActivityLogDashboard logs={activityLog} /> : null;
+            case 'route-planner': return <RoutePlanner roadData={allData} logActivity={logActivity} />;
+            default: return null;
+        }
+    };
+
+    return (
+        <main className="main-content dashboard">
+             <div className="page-header">
+                <h2 className="page-title">{viewTitles[activeView] || 'Dashboard'}</h2>
+                <div className="page-actions">
+                    <button className="action-btn print-btn">Print</button>
+                    <button className="action-btn share-btn">Share</button>
+                </div>
+            </div>
+             
+             {renderContent()}
 
             <Chatbot roadData={allData} isEnabled={isChatEnabled} />
         </main>
     );
 };
 
+const Sidebar = ({ isOpen, setIsOpen, activeView, setActiveView, onLogout, userEmail, role, onSettingsClick }) => {
+  const superAdminNavItems = [
+    { id: 'dashboard', label: 'Dashboard', icon: <DashboardIcon /> },
+    { id: 'route-planner', label: 'Route Planner', icon: <RouteIcon /> },
+    { id: 'users', label: 'Users', icon: <UsersIcon /> },
+    { id: 'analytics', label: 'Analytics', icon: <AnalyticsIcon /> },
+    { id: 'logs', label: 'Activity Log', icon: <LogIcon /> },
+  ];
+
+  // Modify this array to easily add/remove features
+  const getNavItemsForRole = (role) => {
+    switch(role) {
+      case 'superadmin':
+        return superAdminNavItems;
+      case 'admin':
+        return [
+          { id: 'dashboard', label: 'Dashboard', icon: <DashboardIcon /> },
+        ];
+      case 'user':
+      default:
+        return [
+          { id: 'dashboard', label: 'Dashboard', icon: <DashboardIcon /> },
+          { id: 'route-planner', label: 'Route Planner', icon: <RouteIcon /> },
+        ];
+    }
+  };
+  
+  const navItems = getNavItemsForRole(role);
+
+  return (
+    <aside className={`sidebar ${isOpen ? 'open' : 'closed'}`}>
+      <div className="sidebar-header">
+         {isOpen && <span className="logo-text">Sadak Sathi</span>}
+         <button className="sidebar-toggle" onClick={() => setIsOpen(!isOpen)} aria-label="Toggle sidebar">
+            <ChevronLeftIcon />
+         </button>
+      </div>
+      
+      <nav className="sidebar-nav">
+        {navItems.map(item => (
+          <a
+            key={item.id}
+            href="#"
+            className={`nav-item ${activeView === item.id ? 'active' : ''}`}
+            onClick={(e) => { e.preventDefault(); setActiveView(item.id); }}
+            title={item.label}
+          >
+            <span className="nav-icon">{item.icon}</span>
+            <span className="nav-text">{item.label}</span>
+          </a>
+        ))}
+      </nav>
+
+      <div className="sidebar-footer">
+        <div className="user-profile">
+          <div className="user-info">
+            <span className="user-email-text">{userEmail}</span>
+            <span className="user-role-text">{role}</span>
+          </div>
+          {(role === 'admin' || role === 'superadmin') && (
+            <button className="footer-btn" onClick={onSettingsClick} title="Settings">
+              <SettingsIcon />
+            </button>
+          )}
+          <button className="footer-btn" onClick={onLogout} title="Logout">
+            <LogoutIcon />
+          </button>
+        </div>
+      </div>
+    </aside>
+  );
+};
+
 
 const App = ({ role, userEmail, onLogout }) => {
   const [isSettingsOpen, setSettingsOpen] = useState(false);
+  const [isSidebarOpen, setSidebarOpen] = useState(true);
+  const [activeView, setActiveView] = useState<AppView>('dashboard');
   const [settings, setSettings] = useState({
       backgroundColor: '#F3F4F6',
       primaryColor: '#3B82F6',
       textColor: '#1F2937',
-      apiKeys: [] as ApiKey[],
-      sheetIds: [] as SheetId[],
       isChatEnabled: true
   });
   const [activityLog, setActivityLog] = useState<ActivityLog[]>([]);
-
-  const canShowSettings = useMemo(() => role === 'admin' || role === 'superadmin', [role]);
   
   const logActivity = (message: string) => {
     const newLog: ActivityLog = {
@@ -685,7 +844,7 @@ const App = ({ role, userEmail, onLogout }) => {
 
   useEffect(() => {
     logActivity(`User ${userEmail} logged in with role: ${role}.`);
-  }, []);
+  }, [userEmail, role]);
 
   // Apply dynamic styles
   useEffect(() => {
@@ -697,7 +856,7 @@ const App = ({ role, userEmail, onLogout }) => {
   }, [settings.backgroundColor, settings.primaryColor, settings.textColor]);
 
   return (
-    <div className="app-container">
+    <div className="app-layout">
       <SettingsPanel 
         isOpen={isSettingsOpen} 
         onClose={() => setSettingsOpen(false)} 
@@ -708,21 +867,27 @@ const App = ({ role, userEmail, onLogout }) => {
         userEmail={userEmail}
         logActivity={logActivity}
       />
+
+      <Sidebar 
+          isOpen={isSidebarOpen}
+          setIsOpen={setSidebarOpen}
+          activeView={activeView}
+          setActiveView={setActiveView}
+          onLogout={onLogout}
+          userEmail={userEmail}
+          role={role}
+          onSettingsClick={() => setSettingsOpen(true)}
+      />
       
-      <header className="app-header">
-        <h1>Sadak Sathi</h1>
-        <div className="header-user-info">
-            <span className="user-email">{userEmail}</span>
-            {canShowSettings && (
-                <button className="settings-btn" onClick={() => setSettingsOpen(true)} aria-label="Open settings">
-                    <SettingsIcon />
-                </button>
-            )}
-        </div>
-      </header>
-
-      <DashboardPage role={role} isChatEnabled={settings.isChatEnabled} logActivity={logActivity} activityLog={activityLog} />
-
+      <div className="content-wrapper">
+         <DashboardPage 
+            role={role} 
+            isChatEnabled={settings.isChatEnabled} 
+            logActivity={logActivity} 
+            activityLog={activityLog} 
+            activeView={activeView}
+         />
+      </div>
     </div>
   );
 };
