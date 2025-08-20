@@ -19,9 +19,8 @@ type LoginView = 'login' | 'forgot' | 'otp' | 'reset_success';
 type Message = { id: number; text: string; sender: 'user' | 'ai' };
 
 // --- SIMULATED BACKEND API ---
-// This object mimics a secure backend server. In a real application,
-// these functions would make network requests (e.g., using fetch) to your server.
-
+// This object mimics a secure backend server for user authentication.
+// It is NOT connected to the Google Sheet to prevent exposing sensitive user data.
 const SimulatedUserAPI = {
   _users: [
     { email: 'superadmin@app.com', password: 'password123', role: 'superadmin' as UserRole },
@@ -59,17 +58,58 @@ const SimulatedUserAPI = {
 };
 
 
-const SimulatedDataAPI = {
-    _roadData: [
-        { id: 1, HighwayName: 'Araniko Highway', Section: 'Kathmandu - Kodari', Status: 'Blocked', Cause: 'Landslide', Contact: '123-456-7890', Lat: 27.7172, Lng: 85.3240 },
-        { id: 2, HighwayName: 'Prithvi Highway', Section: 'Naubise - Mugling', Status: 'One-lane', Cause: 'Road work', Contact: '123-456-7891', Lat: 27.8389, Lng: 84.8525 },
-        { id: 3, HighwayName: 'Siddhartha Highway', Section: 'Butwal - Palpa', Status: 'Resumed', Cause: 'Cleared', Contact: '123-456-7892', Lat: 27.8643, Lng: 83.5516 },
-        { id: 4, HighwayName: 'Karnali Highway', Section: 'Surkhet - Jumla', Status: 'Blocked', Cause: 'Heavy Snow', Contact: '123-456-7893', Lat: 28.5633, Lng: 82.2858 },
-    ],
+// --- LIVE GOOGLE SHEET API ---
+const GoogleSheetAPI = {
+    _sheetId: '1gfbACf6IkjNhrC_xUDuiFPUyOmgqsuU8mqKVED7Gook',
+    _roadSheetGid: '1775100935',
+    _bridgeSheetGid: '0',
 
-    async getRoadData() {
-        await new Promise(res => setTimeout(res, 800)); // Simulate network delay
-        return { success: true, data: this._roadData };
+    _csvToJson(csv: string) {
+        const lines = csv.split('\n');
+        const headers = lines[0].split(',').map(h => h.trim());
+        const result = [];
+        for (let i = 1; i < lines.length; i++) {
+            const obj = {};
+            const currentLine = lines[i].split(',');
+            if (currentLine.length < headers.length) continue;
+            for (let j = 0; j < headers.length; j++) {
+                obj[headers[j]] = currentLine[j].trim();
+            }
+            result.push(obj);
+        }
+        return result;
+    },
+
+    async getRoadAndBridgeData() {
+        const roadUrl = `https://docs.google.com/spreadsheets/d/${this._sheetId}/export?format=csv&gid=${this._roadSheetGid}`;
+        const bridgeUrl = `https://docs.google.com/spreadsheets/d/${this._sheetId}/export?format=csv&gid=${this._bridgeSheetGid}`;
+
+        try {
+            const [roadRes, bridgeRes] = await Promise.all([
+                fetch(roadUrl),
+                fetch(bridgeUrl)
+            ]);
+
+            if (!roadRes.ok || !bridgeRes.ok) {
+                throw new Error('Failed to fetch data from Google Sheets.');
+            }
+
+            const [roadCsv, bridgeCsv] = await Promise.all([
+                roadRes.text(),
+                bridgeRes.text()
+            ]);
+            
+            const roadJson = this._csvToJson(roadCsv).map(r => ({ ...r, type: 'Road', name: r.HighwayName, location: r.Section, uniqueId: `road-${r.id}` }));
+            const bridgeJson = this._csvToJson(bridgeCsv).map(b => ({ ...b, type: 'Bridge', name: b.BridgeName, location: b.Location, uniqueId: `bridge-${b.id}`}));
+            
+            const combinedData = [...roadJson, ...bridgeJson];
+
+            return { success: true, data: combinedData };
+
+        } catch (error) {
+            console.error("Error fetching Google Sheet data:", error);
+            return { success: false, error: 'Could not load data. Please check the connection and sheet permissions.' };
+        }
     }
 };
 
@@ -232,7 +272,7 @@ const SettingsPanel = ({ isOpen, onClose, role, settings, setSettings, onLogout 
 const Chatbot = ({ roadData, isEnabled }) => {
     const [isOpen, setOpen] = useState(false);
     const [messages, setMessages] = useState<Message[]>([
-        { id: 1, text: "Hello! I'm Sadak Sathi's AI assistant. Ask me about the current road conditions.", sender: 'ai' }
+        { id: 1, text: "Hello! I'm Sadak Sathi's AI assistant. Ask me about the current road and bridge conditions.", sender: 'ai' }
     ]);
     const [userInput, setUserInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
@@ -248,7 +288,7 @@ const Chatbot = ({ roadData, isEnabled }) => {
 
         try {
             const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            const systemInstruction = `You are 'Sadak Sathi AI', a helpful assistant for road conditions in Nepal. Your knowledge is strictly limited to the data provided below. Do not invent information or use external knowledge. If the user asks about something not in the data, state that you don't have information on it. Keep your answers friendly and concise.\n\nCURRENT ROAD DATA:\n${JSON.stringify(roadData, null, 2)}`;
+            const systemInstruction = `You are 'Sadak Sathi AI', a helpful assistant for road conditions in Nepal. Your knowledge is strictly limited to the data provided below about roads and bridges. Do not invent information or use external knowledge. If the user asks about something not in the data, state that you don't have information on it. Keep your answers friendly and concise.\n\nCURRENT ROAD & BRIDGE DATA:\n${JSON.stringify(roadData, null, 2)}`;
             
             chatRef.current = ai.chats.create({
                 model: 'gemini-2.5-flash',
@@ -335,19 +375,23 @@ const Chatbot = ({ roadData, isEnabled }) => {
 // --- Main App Components ---
 
 const DashboardPage = ({ isChatEnabled }) => {
-    const [allRoads, setAllRoads] = useState([]);
-    const [filteredRoads, setFilteredRoads] = useState([]);
+    const [allData, setAllData] = useState([]);
+    const [filteredData, setFilteredData] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('all');
 
     useEffect(() => {
         const fetchData = async () => {
             setLoading(true);
-            const response = await SimulatedDataAPI.getRoadData();
+            setError(null);
+            const response = await GoogleSheetAPI.getRoadAndBridgeData();
             if (response.success) {
-                setAllRoads(response.data);
-                setFilteredRoads(response.data);
+                setAllData(response.data);
+                setFilteredData(response.data);
+            } else {
+                setError(response.error);
             }
             setLoading(false);
         };
@@ -355,22 +399,23 @@ const DashboardPage = ({ isChatEnabled }) => {
     }, []);
     
     useEffect(() => {
-        let roads = allRoads;
+        let data = allData;
         if (statusFilter !== 'all') {
-            roads = roads.filter(r => r.Status.toLowerCase() === statusFilter);
+            data = data.filter(r => r.Status && r.Status.toLowerCase() === statusFilter);
         }
         if (searchTerm) {
-            roads = roads.filter(r => r.HighwayName.toLowerCase().includes(searchTerm.toLowerCase()));
+            data = data.filter(r => r.name.toLowerCase().includes(searchTerm.toLowerCase()));
         }
-        setFilteredRoads(roads);
-    }, [searchTerm, statusFilter, allRoads]);
+        setFilteredData(data);
+    }, [searchTerm, statusFilter, allData]);
 
     const summaryData = useMemo(() => {
-        return allRoads.reduce((acc, road) => {
-            acc[road.Status] = (acc[road.Status] || 0) + 1;
+        return allData.reduce((acc, road) => {
+            const status = road.Status || 'Unknown';
+            acc[status] = (acc[status] || 0) + 1;
             return acc;
         }, {});
-    }, [allRoads]);
+    }, [allData]);
 
     return (
         <main className="main-content dashboard">
@@ -382,7 +427,7 @@ const DashboardPage = ({ isChatEnabled }) => {
                 </div>
             </div>
              <div className="mb-4">
-                <input type="text" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Search roads..." className="p-2 border rounded w-full"/>
+                <input type="text" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Search by name..." className="p-2 border rounded w-full"/>
              </div>
              <div className="mb-4 flex gap-2">
                 <button onClick={() => setStatusFilter('blocked')} className={`filterBtn p-2 rounded ${statusFilter === 'blocked' ? 'bg-blue-500 text-white' : 'bg-gray-300'}`}>Blocked</button>
@@ -392,22 +437,27 @@ const DashboardPage = ({ isChatEnabled }) => {
             </div>
 
             <div id="content" className="border p-4 rounded bg-white dark:bg-gray-900">
-                {loading ? <p>Loading road data...</p> : (
+                {loading ? <p>Loading live data from Google Sheets...</p> : 
+                 error ? <p className="error-message">{error}</p> : (
                     <table className="w-full table-auto border-collapse border">
                         <thead>
                         <tr className="bg-gray-200 dark:bg-gray-700">
-                            <th className="border p-2">Highway/Bridge</th>
-                            <th className="border p-2">Section</th>
+                            <th className="border p-2">Type</th>
+                            <th className="border p-2">Name</th>
+                            <th className="border p-2">Section / Location</th>
                             <th className="border p-2">Status</th>
                             <th className="border p-2">Cause</th>
                             <th className="border p-2">Contact</th>
                         </tr>
                         </thead>
                         <tbody>
-                            {filteredRoads.map(r => (
-                                <tr key={r.id}>
-                                    <td className="border p-2">{r.HighwayName}</td>
-                                    <td className="border p-2">{r.Section}</td>
+                            {filteredData.map(r => (
+                                <tr key={r.uniqueId}>
+                                    <td className="border p-2 text-center">
+                                      <span className={`type-badge type-${r.type.toLowerCase()}`}>{r.type}</span>
+                                    </td>
+                                    <td className="border p-2">{r.name}</td>
+                                    <td className="border p-2">{r.location}</td>
                                     <td className="border p-2">{r.Status}</td>
                                     <td className="border p-2">{r.Cause}</td>
                                     <td className="border p-2">{r.Contact}</td>
@@ -417,7 +467,7 @@ const DashboardPage = ({ isChatEnabled }) => {
                     </table>
                 )}
             </div>
-            <Chatbot roadData={allRoads} isEnabled={isChatEnabled} />
+            <Chatbot roadData={allData} isEnabled={isChatEnabled} />
         </main>
     );
 };
