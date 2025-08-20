@@ -61,11 +61,11 @@ const SimulatedUserAPI = {
 // --- LIVE GOOGLE SHEET API ---
 const GoogleSheetAPI = {
     _sheetId: '1gfbACf6IkjNhrC_xUDuiFPUyOmgqsuU8mqKVED7Gook',
-    // NOTE: Replace these GIDs with the actual ones from your sheet's URL
     _roadSheetGid: '1775100935',
     _bridgeSheetGid: '0',
-    _adminSheetGid: '123456789', // Replace with your "Admin" sheet GID
-    _userSheetGid: '987654321', // Replace with your "User" sheet GID
+    _superAdminSheetGid: '143241838', // GID for "SuperAdmin" sheet
+    _adminSheetGid: '105429813', // Correct GID for "Admin" sheet
+    _userSheetGid: '1471371842', // Correct GID for "User" sheet
 
     _csvToJson(csv: string) {
         if (!csv) return [];
@@ -115,19 +115,22 @@ const GoogleSheetAPI = {
     
     async getAdminAndUserData() {
         try {
-            const [adminCsv, userCsv] = await Promise.all([
+            const [superAdminCsv, adminCsv, userCsv] = await Promise.all([
+                this._fetchSheetData(this._superAdminSheetGid),
                 this._fetchSheetData(this._adminSheetGid),
                 this._fetchSheetData(this._userSheetGid)
             ]);
             
+            // NOTE: Password field is intentionally not used for login to maintain security.
+            const superAdminJson = this._csvToJson(superAdminCsv).map((sa, index) => ({ ...sa, role: 'Super Admin', uniqueId: `superadmin-${sa.id || index}` }));
             const adminJson = this._csvToJson(adminCsv).map((a, index) => ({ ...a, role: 'Admin', uniqueId: `admin-${a.id || index}` }));
             const userJson = this._csvToJson(userCsv).map((u, index) => ({ ...u, role: 'User', uniqueId: `user-${u.id || index}` }));
             
-            return { success: true, data: [...adminJson, ...userJson] };
+            return { success: true, data: [...superAdminJson, ...adminJson, ...userJson] };
 
         } catch (error) {
             console.error("Error fetching admin/user data:", error);
-            return { success: false, error: 'Could not load user data. Please verify the "Admin" and "User" sheet GIDs in the code and check sheet permissions.' };
+            return { success: false, error: 'Could not load user data. Please verify the GIDs in the code and check sheet permissions.' };
         }
     }
 };
@@ -477,7 +480,7 @@ const UserManagementDashboard = () => {
                             <tr key={u.uniqueId}>
                                 <td className="border p-2">{u.email}</td>
                                 <td className="border p-2 text-center">
-                                    <span className={`role-badge role-${u.role.toLowerCase()}`}>{u.role}</span>
+                                    <span className={`role-badge role-${u.role.toLowerCase().replace(/\s+/g, '-')}`}>{u.role}</span>
                                 </td>
                                 <td className="border p-2">{u.status || 'Active'}</td>
                             </tr>
